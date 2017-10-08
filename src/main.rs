@@ -1,21 +1,39 @@
 
+#[macro_use]
 mod objc {
     pub enum Id {}
     pub enum Sel {}
 
     #[link(name = "objc")]
     extern "C" {
-        fn objc_getClass(name: *const u8) -> Option<&Id>;
+        pub fn objc_getClass(name: *const u8) -> Option<&Id>;
         pub fn objc_msgSend(id: *const Id, op: *const Sel, ...) -> Option<&Id>;
-        fn sel_registerName(name: *const u8) -> *const Sel;
+        pub fn sel_registerName(name: *const u8) -> Option<&Sel>;
     }
 
-    pub fn class(name: &str) -> &Id {
-        unsafe { objc_getClass(name.as_ptr()).unwrap() }
+    macro_rules! objc_class {
+        ($n:expr) => {
+            unsafe {
+                objc::objc_getClass(concat!($n, "\0").as_ptr()).unwrap()
+            }
+        }
     }
 
-    pub fn selector(name: &str) -> &Sel {
-        unsafe { &*sel_registerName(name.as_ptr()) }
+    macro_rules! objc_sel {
+        ($n:expr) => {
+            unsafe {
+                objc::sel_registerName(concat!($n, "\0").as_ptr()).unwrap()
+            }
+        }
+    }
+
+    macro_rules! objc_msg_send {
+        ($self:expr, $op:expr) => {
+            unsafe { objc::objc_msgSend($self, $op) }
+        };
+        ($self:expr, $op:expr, $($args:expr),*) => {
+            unsafe { objc::objc_msgSend($self, $op, $($args,)*) }
+        };
     }
 }
 
@@ -29,21 +47,19 @@ mod ns {
 
     impl String {
         pub fn new(s: &str) -> &String {
-            let cls = objc::class("NSString\0");
-            let alloc = objc::selector("alloc\0");
-            unsafe {
-                let string = objc::objc_msgSend(cls, alloc).unwrap();
-                let op = objc::selector("initWithBytes:length:encoding:\0");
-                objc::objc_msgSend(string, op, s.as_ptr(), s.len(), 4).unwrap()
-            }
+            let cls = objc_class!("NSString");
+            let alloc = objc_sel!("alloc");
+            let result = objc_msg_send!(cls, alloc).unwrap();
+            let op = objc_sel!("initWithBytes:length:encoding:");
+            objc_msg_send!(result, op, s.as_ptr(), s.len(), 4).unwrap()
         }
     }
 
     impl<'a> From<&'a String> for string::String {
         fn from(ns_string: &'a String) -> Self {
-            let op = objc::selector("UTF8String\0");
+            let op = objc_sel!("UTF8String");
+            let c_string_bytes = objc_msg_send!(ns_string, op).unwrap();
             unsafe {
-                let c_string_bytes = objc::objc_msgSend(ns_string, op).unwrap();
                 ffi::CString::from_raw(mem::transmute::<&objc::Id, *mut i8>(c_string_bytes))
                     .into_string()
                     .unwrap()
@@ -59,19 +75,17 @@ mod ns {
 
     impl Application {
         pub fn shared<'a>() -> &'a Application {
-            let cls = objc::class("NSApplication\0");
-            let op = objc::selector("sharedApplication\0");
-            unsafe { objc::objc_msgSend(cls, op).unwrap() }
+            let cls = objc_class!("NSApplication");
+            let op = objc_sel!("sharedApplication");
+            objc_msg_send!(cls, op).unwrap()
         }
         pub fn set_activation_policy(&self, policy: ApplicationActivationPolicy) -> bool {
-            let op = objc::selector("setActivationPolicy:\0");
-            unsafe { objc::objc_msgSend(self, op, policy as u32).is_some() }
+            let op = objc_sel!("setActivationPolicy:");
+            objc_msg_send!(self, op, policy as u32).is_some()
         }
         pub fn finish_launching(&self) {
-            let op = objc::selector("finishLaunching\0");
-            unsafe {
-                objc::objc_msgSend(self, op);
-            }
+            let op = objc_sel!("finishLaunching");
+            objc_msg_send!(self, op);
         }
     }
 
@@ -79,13 +93,13 @@ mod ns {
 
     impl Bundle {
         pub fn main<'a>() -> &'a Bundle {
-            let cls = objc::class("NSBundle\0");
-            let op = objc::selector("mainBundle\0");
-            unsafe { objc::objc_msgSend(cls, op).unwrap() }
+            let cls = objc_class!("NSBundle");
+            let op = objc_sel!("mainBundle");
+            objc_msg_send!(cls, op).unwrap()
         }
         pub fn object(&self, key: &str) -> Option<&objc::Id> {
-            let op = objc::selector("objectForInfoDictionaryKey:\0");
-            unsafe { objc::objc_msgSend(self, op, String::new(key)) }
+            let op = objc_sel!("objectForInfoDictionaryKey:");
+            objc_msg_send!(self, op, String::new(key))
         }
     }
 
@@ -93,13 +107,13 @@ mod ns {
 
     impl ProcessInfo {
         pub fn process_info<'a>() -> &'a ProcessInfo {
-            let cls = objc::class("NSProcessInfo\0");
-            let op = objc::selector("processInfo\0");
-            unsafe { objc::objc_msgSend(cls, op).unwrap() }
+            let cls = objc_class!("NSProcessInfo");
+            let op = objc_sel!("processInfo");
+            objc_msg_send!(cls, op).unwrap()
         }
         pub fn process_name(&self) -> &String {
-            let op = objc::selector("processName\0");
-            unsafe { objc::objc_msgSend(self, op).unwrap() }
+            let op = objc_sel!("processName");
+            objc_msg_send!(self, op).unwrap()
         }
     }
 
